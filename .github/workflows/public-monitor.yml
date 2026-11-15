@@ -1,0 +1,52 @@
+name: Daily authorized video-worker monitor
+
+on:
+  push:
+    paths:
+      - '.github/workflows/public-monitor.yml'
+      - 'worker.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '13 07 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  public-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Inspect public homepage (no video views, no account access)
+        id: audit
+        continue-on-error: true
+        run: python worker.py audit-stremio --output reports/public-audit.json
+      - name: Publish result summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Daily public-site audit" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read-only homepage check. No artificial video views, reward claims, login, or withdrawals." >> "$GITHUB_STEP_SUMMARY"
+          if [ -f reports/public-audit.json ]; then
+            echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+            cat reports/public-audit.json >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Report unavailable: environment or workflow error." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-homepage-audit
+          path: reports/public-audit.json
+          retention-days: 7
+          if-no-files-found: warn
